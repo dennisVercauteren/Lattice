@@ -233,8 +233,8 @@ export function CatalogPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                const result = createComponent({
+              onClick={async () => {
+                const result = await createComponent({
                   ...draftForType(draftType),
                   name: name.trim() || "Untitled",
                   description,

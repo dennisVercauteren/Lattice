@@ -30,10 +30,10 @@ export function HomePage() {
           defaultValue={graph.workspace.name}
           key={graph.workspace.id}
           placeholder="Name this workspace"
-          onBlur={(e) => {
+          onBlur={async (e) => {
             const name = e.target.value.trim();
             if (name && name !== graph.workspace.name) {
-              const result = updateWorkspace({ name });
+              const result = await updateWorkspace({ name });
               if (!result.ok) toast.error(toastErrors(result.errors));
             }
           }}
@@ -43,9 +43,9 @@ export function HomePage() {
           defaultValue={graph.workspace.description}
           key={`${graph.workspace.id}-desc`}
           placeholder="What is this architecture for?"
-          onBlur={(e) => {
+          onBlur={async (e) => {
             if (e.target.value !== graph.workspace.description) {
-              const result = updateWorkspace({ description: e.target.value });
+              const result = await updateWorkspace({ description: e.target.value });
               if (!result.ok) toast.error(toastErrors(result.errors));
             }
           }}

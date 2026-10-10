@@ -10,11 +10,13 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
-  optimizeDeps: {
-    include: ["sql.js"],
+  server: {
+    proxy: {
+      "/api": `http://127.0.0.1:${process.env.LATTICE_PORT ?? 8787}`,
+    },
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "server/**/*.test.ts"],
   },
 });

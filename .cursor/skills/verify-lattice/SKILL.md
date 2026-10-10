@@ -21,13 +21,13 @@ If you changed `src/schema`, confirm `git diff schemas/` is the expected JSON Sc
 pnpm build
 ```
 
-Use when touching `tsconfig`, Vite, or sql.js WASM loading.
+Use when touching `tsconfig`, Vite, or the server.
 
 ## UI (when the change is visible)
 
-1. `pnpm dev` if nothing is on port 5173.
+1. `pnpm db:up` (FalkorDB), then `pnpm dev` if nothing is on port 5173.
 2. Browser MCP: open `http://localhost:5173`.
 3. First load shows **Northstar**. Check the surface you changed (Catalog / Pages / Diagrams).
-4. Header overflow **Reset to sample** if the graph looks like stale local data.
+4. Header overflow **Reset to sample** reloads Northstar into FalkorDB (deletes all workspaces).
 
 Do not treat diagram labels as data — inspect catalog records. Export JSON from the header if you need a bundle to pass to `lattice_validate_bundle`.

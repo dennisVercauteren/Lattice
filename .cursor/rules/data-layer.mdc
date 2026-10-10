@@ -1,16 +1,18 @@
 ---
-description: Browser SQLite, Drizzle rows, integrity, and Zustand writes
-globs: src/db/**/*.ts,src/store/**/*.ts,src/data/**/*.ts
+description: FalkorDB graph repository, API, integrity, and Zustand writes
+globs: server/**/*.ts,src/api/**/*.ts,src/store/**/*.ts,src/data/**/*.ts
 alwaysApply: false
 ---
 
 # Data layer
 
-- Engine: `src/db/client.ts`. `getEngine()` throws until `bootEngine()`. Persist via `markDirty()` (400ms debounce + hide/pagehide flush).
-- Tables: `src/db/schema.ts`. DDL: `src/db/migrate.ts`. Keep them aligned. Type-specific component fields go in `extras` JSON (`extrasFrom` / `rowToComponent` in `src/db/repository.ts`).
-- `parentId` / `ownerId` columns stay in sync with `contains` / `owned_by` rows (`upsertContains`, `upsertOwnedBy`).
-- Import remaps all IDs (`remapBundle`). Pages: `remapMentionIds`. Diagrams: `stripDanglingDiagramNodes`.
-- Seed: `src/data/seed.ts`. Northstar must `bundleSchema.safeParse` and `integrityErrors(bundle) === []`.
-- Store: after a successful write, `markDirty()` + re-hydrate. Use `toastErrors` in UI.
-
-Do not add a Node/server database. Tests that need SQLite use in-memory engines from the repo helpers, not the browser persist layer.
+- FalkorDB access: `server/graph.ts` (`GraphStore.read`, `GraphStore.write` = one `MULTI/EXEC`). Cypher helpers: `server/cypher.ts`.
+- Repository: `server/repository.ts` (`GraphRepo`). Writes are serialized; each loads the workspace, validates (Zod, metamodel, existence, cycles), then writes. Never write before validation passes — Redis does not roll back.
+- One graph per workspace, pointed to by `(:Workspace {graph})` in `lattice:meta`. Replace-import builds a new graph, then swaps the pointer.
+- `parentId` / `ownerId` are derived from `CONTAINS` / `OWNED_BY` edges on read. Do not store them as properties.
+- Type-specific component fields are plain node properties; anything on the Zod schema round-trips. Page `doc` and diagram `query`/`view` are JSON strings.
+- Labels and relationship types come only from Zod enums (`componentLabel`, `relType`). Values always go through `$params`.
+- Import remaps all IDs (`server/bundle.ts` `remapBundle`). Pages: `remapMentionIds`. Diagrams: `stripDanglingDiagramNodes`.
+- Seed: `src/data/seed.ts`. Northstar must `bundleSchema.safeParse` and `integrityErrors(bundle) === []` (`src/lib/integrity.ts`).
+- API: `server/app.ts`. Every response is a `Result<T>`; the URL decides `workspaceId`.
+- Store: actions are async. Updates patch the local graph at call time, writes are queued, and the store reloads when the queue drains. Use `toastErrors` in UI.

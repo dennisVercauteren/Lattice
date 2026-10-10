@@ -49,8 +49,8 @@ export function PagesPage() {
           <Button
             size="icon"
             variant="ghost"
-            onClick={() => {
-              const result = createPage({ title: "Untitled", parentId: selected?.parentId });
+            onClick={async () => {
+              const result = await createPage({ title: "Untitled", parentId: selected?.parentId });
               if (result.ok) navigate(`/pages/${result.data.id}`);
               else toast.error(toastErrors(result.errors));
             }}
@@ -86,10 +86,10 @@ export function PagesPage() {
                 className="h-10 border-none bg-transparent px-0 text-2xl font-semibold shadow-none focus-visible:ring-0"
                 defaultValue={selected.title}
                 key={selected.id}
-                onBlur={(e) => {
+                onBlur={async (e) => {
                   const next = e.target.value.trim();
                   if (next && next !== selected.title) {
-                    const result = updatePage(selected.id, { title: next });
+                    const result = await updatePage(selected.id, { title: next });
                     if (!result.ok) toast.error(toastErrors(result.errors));
                   }
                 }}
@@ -97,8 +97,8 @@ export function PagesPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => {
-                  const result = createPage({ title: "Untitled", parentId: selected.id });
+                onClick={async () => {
+                  const result = await createPage({ title: "Untitled", parentId: selected.id });
                   if (result.ok) navigate(`/pages/${result.data.id}`);
                   else toast.error(toastErrors(result.errors));
                 }}
@@ -108,8 +108,8 @@ export function PagesPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => {
-                  const result = deletePage(selected.id);
+                onClick={async () => {
+                  const result = await deletePage(selected.id);
                   if (!result.ok) toast.error(toastErrors(result.errors));
                   else navigate("/pages");
                 }}
@@ -122,8 +122,8 @@ export function PagesPage() {
               doc={selected.doc}
               components={graph.components}
               pages={graph.pages}
-              onChange={(doc) => {
-                const result = updatePage(selected.id, { doc });
+              onChange={async (doc) => {
+                const result = await updatePage(selected.id, { doc });
                 if (!result.ok) toast.error(toastErrors(result.errors));
               }}
             />

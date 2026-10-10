@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { integrityErrors, stripDanglingDiagramNodes } from "@/db/integrity";
+import { integrityErrors, stripDanglingDiagramNodes } from "@/lib/integrity";
 import { buildEmptyWorkspace, buildSampleWorkspace } from "@/data/seed";
 import { bundleSchema } from "@/schema/bundle";
 import { componentSchema } from "@/schema/component";

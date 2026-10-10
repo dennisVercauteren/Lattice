@@ -60,7 +60,7 @@ export function AppShell() {
     switchWorkspace,
     createWorkspace,
     deleteWorkspace,
-    resetLocalData,
+    resetToSample,
     exportBundle,
     importBundle,
   } = useWorkspace();
@@ -86,8 +86,8 @@ export function AppShell() {
     return [...components, ...pages];
   }, [graph, query]);
 
-  function onExport() {
-    const result = exportBundle();
+  async function onExport() {
+    const result = await exportBundle();
     if (!result.ok) {
       toast.error(toastErrors(result.errors));
       return;
@@ -113,11 +113,11 @@ export function AppShell() {
     });
   }
 
-  function runImport(mode: "new" | "replace") {
+  async function runImport(mode: "new" | "replace") {
     if (!pendingImport) return;
-    const result = importBundle(pendingImport, mode);
     setImportOpen(false);
     setPendingImport(null);
+    const result = await importBundle(pendingImport, mode);
     if (!result.ok) {
       toast.error(toastErrors(result.errors));
       return;
@@ -194,7 +194,7 @@ export function AppShell() {
                 <DropdownMenuItem
                   key={workspace.id}
                   onSelect={() => {
-                    switchWorkspace(workspace.id);
+                    void switchWorkspace(workspace.id);
                     navigate("/");
                   }}
                 >
@@ -210,8 +210,8 @@ export function AppShell() {
               </DropdownMenuItem>
               {currentId && workspaces.length > 1 ? (
                 <DropdownMenuItem
-                  onSelect={() => {
-                    const result = deleteWorkspace(currentId);
+                  onSelect={async () => {
+                    const result = await deleteWorkspace(currentId);
                     if (!result.ok) toast.error(toastErrors(result.errors));
                   }}
                 >
@@ -295,8 +295,8 @@ export function AppShell() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                const result = createWorkspace(newName);
+              onClick={async () => {
+                const result = await createWorkspace(newName);
                 if (!result.ok) toast.error(toastErrors(result.errors));
                 else {
                   setCreateOpen(false);
@@ -329,16 +329,19 @@ export function AppShell() {
         <AlertDialogContent>
           <AlertDialogTitle>Reset to the Northstar sample?</AlertDialogTitle>
           <AlertDialogDescription>
-            This deletes every workspace in this browser and loads the sample invoicing product again.
+            This deletes every workspace in the database and loads the sample invoicing product again.
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                void resetLocalData().then(() => {
-                  toast.success("Sample workspace loaded");
-                  navigate("/");
-                });
+              onClick={async () => {
+                const result = await resetToSample();
+                if (!result.ok) {
+                  toast.error(toastErrors(result.errors));
+                  return;
+                }
+                toast.success("Sample workspace loaded");
+                navigate("/");
               }}
             >
               Reset
@@ -366,7 +369,7 @@ export function BootGate() {
           <div className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
             Lattice
           </div>
-          <p className="mt-3 text-sm text-muted-foreground">Opening local workspace…</p>
+          <p className="mt-3 text-sm text-muted-foreground">Connecting to the Lattice server…</p>
         </div>
       </div>
     );
@@ -376,8 +379,14 @@ export function BootGate() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="max-w-md text-center">
-          <h1 className="text-lg font-semibold">Could not open the local database</h1>
+          <h1 className="text-lg font-semibold">Could not reach the Lattice server</h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Start FalkorDB with <code>pnpm db:up</code> and the app with <code>pnpm dev</code>.
+          </p>
+          <Button className="mt-4" variant="outline" onClick={() => void boot()}>
+            Retry
+          </Button>
         </div>
       </div>
     );

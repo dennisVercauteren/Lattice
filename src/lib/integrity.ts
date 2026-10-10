@@ -137,7 +137,14 @@ export function integrityErrors(bundle: Bundle): FieldError[] {
   });
 
   const parentOf = new Map<string, string | undefined>();
+  const pageByComponent = new Set<string>();
   bundle.pages.forEach((page, index) => {
+    if (page.componentId) {
+      if (pageByComponent.has(page.componentId)) {
+        errors.push(err(`pages[${index}].componentId`, "a component can have only one page"));
+      }
+      pageByComponent.add(page.componentId);
+    }
     if (page.workspaceId !== wsId) {
       errors.push(err(`pages[${index}].workspaceId`, "must match workspace.id"));
     }
