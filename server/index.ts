@@ -11,7 +11,8 @@ const PORT = Number(process.env.LATTICE_PORT ?? 8787);
 const DIST = path.resolve(import.meta.dirname, "../dist");
 
 const store = await GraphStore.connect();
-const repo = new GraphRepo(store);
+// E2E runs set a separate prefix so they never touch the real `lattice:*` graphs.
+const repo = new GraphRepo(store, { prefix: process.env.LATTICE_GRAPH_PREFIX || undefined });
 await repo.seedIfEmpty();
 
 const app = createApp(repo);

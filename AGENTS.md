@@ -31,6 +31,8 @@ pnpm db:up            # FalkorDB in Docker (127.0.0.1:6379, browser UI on :3000)
 pnpm dev              # API on 127.0.0.1:8787 + Vite on http://localhost:5173 (proxies /api)
 pnpm schema:export    # after any src/schema change
 pnpm test             # repository tests need FalkorDB; they skip when it is down
+pnpm test:e2e         # Playwright scenarios (e2e/tests); needs FalkorDB, starts its own API :8788 + Vite :5174
+pnpm training         # Playwright training walkthroughs (e2e/training) → training-output/<slug>/ (README, PNGs, video)
 pnpm lint
 pnpm build
 pnpm start            # serve dist/ and the API from one process
