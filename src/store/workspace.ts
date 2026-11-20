@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import { attachFlushListeners, bootEngine, getEngine, markDirty, resetEngine } from "@/db/client";
-import { WorkspaceRepo } from "@/db/repository";
+import { api, patchBody } from "@/api/client";
 import { createId, nowIso, slugify } from "@/lib/ids";
 import type { Bundle } from "@/schema/bundle";
 import type { Component, ComponentDraft } from "@/schema/component";
@@ -11,14 +10,6 @@ import type { FieldError, Result } from "@/schema/result";
 import type { Workspace } from "@/schema/workspace";
 
 const CURRENT_KEY = "lattice.currentWorkspaceId";
-const DATA_EPOCH_KEY = "lattice.dataEpoch";
-const DATA_EPOCH = "northstar-1";
-const LEGACY_CURRENT_KEY = "kubuz.currentWorkspaceId";
-const LEGACY_EPOCH_KEY = "kubuz.dataEpoch";
-
-function repo() {
-  return new WorkspaceRepo(getEngine());
-}
 
 function persistId(id: string) {
   localStorage.setItem(CURRENT_KEY, id);
@@ -32,6 +23,8 @@ type Graph = {
   diagrams: Diagram[];
 };
 
+type Snapshot = Pick<Store, "workspaces" | "currentId" | "graph">;
+
 type Store = {
   ready: boolean;
   saving: boolean;
@@ -40,225 +33,247 @@ type Store = {
   currentId: string | null;
   graph: Graph | null;
   boot: () => Promise<void>;
-  refresh: () => void;
-  switchWorkspace: (id: string) => void;
-  createWorkspace: (name?: string) => Result<Workspace>;
-  updateWorkspace: (patch: Partial<Pick<Workspace, "name" | "description">>) => Result<Workspace>;
-  deleteWorkspace: (id: string) => Result<{ id: string }>;
-  resetLocalData: () => Promise<void>;
-  createComponent: (input: ComponentDraft & { id?: string }) => Result<Component>;
-  updateComponent: (id: string, patch: Record<string, unknown>) => Result<Component>;
-  deleteComponent: (id: string) => Result<{ id: string }>;
-  createReference: (input: Omit<Reference, "id" | "workspaceId" | "createdAt" | "updatedAt"> & { id?: string }) => Result<Reference>;
-  deleteReference: (id: string) => Result<{ id: string }>;
-  createPage: (input: { title: string; parentId?: string; doc?: TiptapDoc }) => Result<Page>;
-  updatePage: (id: string, patch: Partial<Page>) => Result<Page>;
-  deletePage: (id: string) => Result<{ id: string }>;
-  createDiagram: (input: Omit<Diagram, "id" | "workspaceId" | "createdAt" | "updatedAt">) => Result<Diagram>;
-  updateDiagram: (id: string, patch: Partial<Diagram>) => Result<Diagram>;
-  deleteDiagram: (id: string) => Result<{ id: string }>;
-  exportBundle: () => Result<Bundle>;
-  importBundle: (raw: unknown, mode: "new" | "replace") => Result<Bundle>;
+  refresh: () => Promise<void>;
+  switchWorkspace: (id: string) => Promise<void>;
+  createWorkspace: (name?: string) => Promise<Result<Workspace>>;
+  updateWorkspace: (patch: Partial<Pick<Workspace, "name" | "description">>) => Promise<Result<Workspace>>;
+  deleteWorkspace: (id: string) => Promise<Result<{ id: string }>>;
+  resetToSample: () => Promise<Result<Workspace>>;
+  createComponent: (input: ComponentDraft & { id?: string }) => Promise<Result<Component>>;
+  updateComponent: (id: string, patch: Record<string, unknown>) => Promise<Result<Component>>;
+  deleteComponent: (id: string) => Promise<Result<{ id: string }>>;
+  createReference: (
+    input: Omit<Reference, "id" | "workspaceId" | "createdAt" | "updatedAt"> & { id?: string },
+  ) => Promise<Result<Reference>>;
+  deleteReference: (id: string) => Promise<Result<{ id: string }>>;
+  createPage: (input: { title: string; parentId?: string; doc?: TiptapDoc }) => Promise<Result<Page>>;
+  updatePage: (id: string, patch: Partial<Page>) => Promise<Result<Page>>;
+  deletePage: (id: string) => Promise<Result<{ id: string }>>;
+  createDiagram: (input: Omit<Diagram, "id" | "workspaceId" | "createdAt" | "updatedAt">) => Promise<Result<Diagram>>;
+  updateDiagram: (id: string, patch: Partial<Diagram>) => Promise<Result<Diagram>>;
+  deleteDiagram: (id: string) => Promise<Result<{ id: string }>>;
+  exportBundle: () => Promise<Result<Bundle>>;
+  importBundle: (raw: unknown, mode: "new" | "replace") => Promise<Result<Bundle>>;
 };
 
-function hydrate(currentId?: string | null): Pick<Store, "workspaces" | "currentId" | "graph"> {
-  const r = repo();
-  const workspaces = r.listWorkspaces();
-  const preferred = currentId ?? localStorage.getItem(CURRENT_KEY);
-  const current = workspaces.find((w) => w.id === preferred) ?? workspaces[0] ?? null;
-  if (!current) {
-    return { workspaces, currentId: null, graph: null };
-  }
+const noWorkspace: Result<never> = { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
+
+async function fetchSnapshot(preferredId: string | null): Promise<Snapshot> {
+  const list = await api<Workspace[]>("GET", "/workspaces");
+  if (!list.ok) throw new Error(toastErrors(list.errors));
+  const preferred = preferredId ?? localStorage.getItem(CURRENT_KEY);
+  const current = list.data.find((w) => w.id === preferred) ?? list.data[0] ?? null;
+  if (!current) return { workspaces: list.data, currentId: null, graph: null };
   persistId(current.id);
-  const bundle = r.loadWorkspace(current.id);
-  if (!bundle) return { workspaces, currentId: current.id, graph: null };
+  const bundle = await api<Bundle>("GET", `/workspaces/${current.id}`);
+  if (!bundle.ok) throw new Error(toastErrors(bundle.errors));
+  const { workspace, components, references, pages, diagrams } = bundle.data;
   return {
-    workspaces,
+    workspaces: list.data,
     currentId: current.id,
-    graph: {
-      workspace: bundle.workspace,
-      components: bundle.components,
-      references: bundle.references,
-      pages: bundle.pages,
-      diagrams: bundle.diagrams,
-    },
+    graph: { workspace, components, references, pages, diagrams },
   };
 }
 
-function afterWrite<T>(set: (partial: Partial<Store>) => void, result: Result<T>): Result<T> {
-  if (result.ok) {
-    markDirty();
-    set({ ...hydrate(), saving: false });
-  }
-  return result;
-}
+/*
+ * Writes go to the server one at a time, in call order. Updates are applied to the local graph
+ * immediately so typing and dragging stay smooth; once the queue is empty the store reloads from
+ * the server. A reload is dropped if another write started meanwhile, so a slow response can never
+ * overwrite newer local edits.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+let pending = 0;
+let writeSeq = 0;
 
-export const useWorkspace = create<Store>((set, get) => ({
-  ready: false,
-  saving: false,
-  error: null,
-  workspaces: [],
-  currentId: null,
-  graph: null,
-
-  boot: async () => {
+export const useWorkspace = create<Store>((set, get) => {
+  async function reload() {
+    const seq = writeSeq;
     try {
-      await bootEngine();
-      attachFlushListeners();
-      if (localStorage.getItem(DATA_EPOCH_KEY) !== DATA_EPOCH) {
-        await resetEngine();
-        localStorage.setItem(DATA_EPOCH_KEY, DATA_EPOCH);
-        localStorage.removeItem(CURRENT_KEY);
-        localStorage.removeItem(LEGACY_CURRENT_KEY);
-        localStorage.removeItem(LEGACY_EPOCH_KEY);
-      } else if (get().ready && !get().error) {
-        return;
-      }
-      repo().seedIfEmpty();
-      markDirty();
-      set({ ready: true, error: null, ...hydrate() });
+      const next = await fetchSnapshot(get().currentId);
+      if (seq === writeSeq && pending === 0) set(next);
     } catch (error) {
-      set({
-        ready: true,
-        error: error instanceof Error ? error.message : "Failed to open local database",
-      });
+      console.error("Reload failed", error);
     }
-  },
+  }
 
-  refresh: () => set(hydrate(get().currentId)),
+  function enqueue<T>(write: () => Promise<Result<T>>): Promise<Result<T>> {
+    pending += 1;
+    writeSeq += 1;
+    set({ saving: true });
+    const run = queue.then(async () => {
+      try {
+        return await write();
+      } finally {
+        pending -= 1;
+        if (pending === 0) {
+          await reload();
+          set({ saving: false });
+        }
+      }
+    });
+    queue = run.catch(() => undefined);
+    return run;
+  }
 
-  switchWorkspace: (id) => set(hydrate(id)),
+  /** Must run at call time, not inside the queued write, or the UI briefly shows older state. */
+  function patchLocal(update: (graph: Graph) => Graph) {
+    const graph = get().graph;
+    if (graph) set({ graph: update(graph) });
+  }
 
-  createWorkspace: (name) => {
-    const result = repo().createEmptyWorkspace(name);
-    if (result.ok) {
-      persistId(result.data.id);
-      markDirty();
-      set({ ...hydrate(result.data.id) });
-    }
-    return result;
-  },
+  function replaceById<T extends { id: string }>(items: T[], id: string, patch: object): T[] {
+    return items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+  }
 
-  updateWorkspace: (patch) => {
+  function inWorkspace<T>(write: (workspaceId: string) => Promise<Result<T>>): Promise<Result<T>> {
     const id = get().currentId;
-    if (!id) return { ok: false, errors: [{ path: "id", message: "no workspace" }] };
-    return afterWrite(set, repo().updateWorkspace(id, patch));
-  },
+    if (!id) return Promise.resolve(noWorkspace);
+    return enqueue(() => write(id));
+  }
 
-  deleteWorkspace: (id) => {
-    const result = repo().deleteWorkspace(id);
-    if (result.ok) {
-      markDirty();
-      set(hydrate());
-    }
-    return result;
-  },
+  return {
+    ready: false,
+    saving: false,
+    error: null,
+    workspaces: [],
+    currentId: null,
+    graph: null,
 
-  resetLocalData: async () => {
-    await resetEngine();
-    localStorage.setItem(DATA_EPOCH_KEY, DATA_EPOCH);
-    localStorage.removeItem(CURRENT_KEY);
-    localStorage.removeItem(LEGACY_CURRENT_KEY);
-    localStorage.removeItem(LEGACY_EPOCH_KEY);
-    repo().seedIfEmpty();
-    markDirty();
-    const untitled = repo().listWorkspaces()[0];
-    if (untitled) persistId(untitled.id);
-    set({ ...hydrate(), error: null });
-  },
+    boot: async () => {
+      if (get().ready && !get().error) return;
+      set({ ready: false, error: null });
+      try {
+        set({ ...(await fetchSnapshot(get().currentId)), ready: true, error: null });
+      } catch (error) {
+        set({ ready: true, error: error instanceof Error ? error.message : "Failed to reach the Lattice server" });
+      }
+    },
 
-  createComponent: (input) => {
-    const graph = get().graph;
-    if (!graph) return { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
-    const now = nowIso();
-    const component = {
-      ...input,
-      id: input.id ?? createId("component"),
-      workspaceId: graph.workspace.id,
-      createdAt: now,
-      updatedAt: now,
-    } as Component;
-    return afterWrite(set, repo().createComponent(component));
-  },
+    refresh: async () => {
+      await queue;
+      await reload();
+    },
 
-  updateComponent: (id, patch) => afterWrite(set, repo().updateComponent(id, patch)),
-  deleteComponent: (id) => afterWrite(set, repo().deleteComponent(id)),
+    switchWorkspace: async (id) => {
+      persistId(id);
+      set({ currentId: id });
+      await queue;
+      await reload();
+    },
 
-  createReference: (input) => {
-    const graph = get().graph;
-    if (!graph) return { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
-    const now = nowIso();
-    const reference: Reference = {
-      ...input,
-      id: input.id ?? createId("reference"),
-      workspaceId: graph.workspace.id,
-      createdAt: now,
-      updatedAt: now,
-    };
-    return afterWrite(set, repo().createReference(reference));
-  },
+    createWorkspace: (name) =>
+      enqueue(async () => {
+        const result = await api<Workspace>("POST", "/workspaces", { name });
+        if (result.ok) {
+          persistId(result.data.id);
+          set({ currentId: result.data.id });
+        }
+        return result;
+      }),
 
-  deleteReference: (id) => afterWrite(set, repo().deleteReference(id)),
+    updateWorkspace: (patch) => {
+      patchLocal((graph) => ({ ...graph, workspace: { ...graph.workspace, ...patch } }));
+      return inWorkspace((ws) => api<Workspace>("PATCH", `/workspaces/${ws}`, patch));
+    },
 
-  createPage: (input) => {
-    const graph = get().graph;
-    if (!graph) return { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
-    const now = nowIso();
-    const siblings = graph.pages.filter((p) => p.parentId === input.parentId && !p.componentId);
-    const page: Page = {
-      id: createId("page"),
-      workspaceId: graph.workspace.id,
-      parentId: input.parentId,
-      title: input.title,
-      slug: slugify(input.title),
-      order: siblings.length,
-      doc: input.doc ?? emptyDoc(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    return afterWrite(set, repo().createPage(page));
-  },
+    deleteWorkspace: (id) => enqueue(() => api<{ id: string }>("DELETE", `/workspaces/${id}`)),
 
-  updatePage: (id, patch) => afterWrite(set, repo().updatePage(id, patch)),
-  deletePage: (id) => afterWrite(set, repo().deletePage(id)),
+    resetToSample: () =>
+      enqueue(async () => {
+        const result = await api<Workspace>("POST", "/reset");
+        if (result.ok) {
+          persistId(result.data.id);
+          set({ currentId: result.data.id });
+        }
+        return result;
+      }),
 
-  createDiagram: (input) => {
-    const graph = get().graph;
-    if (!graph) return { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
-    const now = nowIso();
-    const diagram: Diagram = {
-      ...input,
-      id: createId("diagram"),
-      workspaceId: graph.workspace.id,
-      createdAt: now,
-      updatedAt: now,
-    };
-    return afterWrite(set, repo().createDiagram(diagram));
-  },
+    createComponent: (input) =>
+      inWorkspace((ws) => {
+        const now = nowIso();
+        const component = { ...input, id: input.id ?? createId("component"), createdAt: now, updatedAt: now };
+        return api<Component>("POST", `/workspaces/${ws}/components`, component);
+      }),
 
-  updateDiagram: (id, patch) => afterWrite(set, repo().updateDiagram(id, patch)),
-  deleteDiagram: (id) => afterWrite(set, repo().deleteDiagram(id)),
+    updateComponent: (id, patch) => {
+      patchLocal((graph) => ({ ...graph, components: replaceById(graph.components, id, patch) }));
+      return inWorkspace((ws) => api<Component>("PATCH", `/workspaces/${ws}/components/${id}`, patchBody(patch)));
+    },
 
-  exportBundle: () => {
-    const id = get().currentId;
-    if (!id) return { ok: false, errors: [{ path: "workspaceId", message: "no workspace" }] };
-    return repo().exportBundle(id);
-  },
+    deleteComponent: (id) =>
+      inWorkspace((ws) => api<{ id: string }>("DELETE", `/workspaces/${ws}/components/${id}`)),
 
-  importBundle: (raw, mode) => {
-    const currentId = get().currentId;
-    const result =
-      mode === "replace" && currentId
-        ? repo().importBundle(raw, { type: "replace", workspaceId: currentId })
-        : repo().importBundle(raw, { type: "new" });
-    if (result.ok) {
-      persistId(result.data.workspace.id);
-      markDirty();
-      set(hydrate(result.data.workspace.id));
-    }
-    return result;
-  },
-}));
+    createReference: (input) =>
+      inWorkspace((ws) => {
+        const now = nowIso();
+        const reference = { ...input, id: input.id ?? createId("reference"), createdAt: now, updatedAt: now };
+        return api<Reference>("POST", `/workspaces/${ws}/references`, reference);
+      }),
+
+    deleteReference: (id) =>
+      inWorkspace((ws) => api<{ id: string }>("DELETE", `/workspaces/${ws}/references/${id}`)),
+
+    createPage: (input) =>
+      inWorkspace((ws) => {
+        const now = nowIso();
+        const siblings = get().graph?.pages.filter((p) => p.parentId === input.parentId && !p.componentId) ?? [];
+        const page = {
+          id: createId("page"),
+          parentId: input.parentId,
+          title: input.title,
+          slug: slugify(input.title),
+          order: siblings.length,
+          doc: input.doc ?? emptyDoc(),
+          createdAt: now,
+          updatedAt: now,
+        };
+        return api<Page>("POST", `/workspaces/${ws}/pages`, page);
+      }),
+
+    updatePage: (id, patch) => {
+      patchLocal((graph) => ({ ...graph, pages: replaceById(graph.pages, id, patch) }));
+      return inWorkspace((ws) => api<Page>("PATCH", `/workspaces/${ws}/pages/${id}`, patchBody(patch)));
+    },
+
+    deletePage: (id) => inWorkspace((ws) => api<{ id: string }>("DELETE", `/workspaces/${ws}/pages/${id}`)),
+
+    createDiagram: (input) =>
+      inWorkspace((ws) => {
+        const now = nowIso();
+        const diagram = { ...input, id: createId("diagram"), createdAt: now, updatedAt: now };
+        return api<Diagram>("POST", `/workspaces/${ws}/diagrams`, diagram);
+      }),
+
+    updateDiagram: (id, patch) => {
+      patchLocal((graph) => ({ ...graph, diagrams: replaceById(graph.diagrams, id, patch) }));
+      return inWorkspace((ws) => api<Diagram>("PATCH", `/workspaces/${ws}/diagrams/${id}`, patchBody(patch)));
+    },
+
+    deleteDiagram: (id) =>
+      inWorkspace((ws) => api<{ id: string }>("DELETE", `/workspaces/${ws}/diagrams/${id}`)),
+
+    exportBundle: async () => {
+      const id = get().currentId;
+      if (!id) return noWorkspace;
+      await queue;
+      return api<Bundle>("GET", `/workspaces/${id}/export`);
+    },
+
+    importBundle: (raw, mode) =>
+      enqueue(async () => {
+        const currentId = get().currentId;
+        const result =
+          mode === "replace" && currentId
+            ? await api<Bundle>("POST", `/workspaces/${currentId}/import`, { bundle: raw })
+            : await api<Bundle>("POST", "/import", { bundle: raw });
+        if (result.ok) {
+          persistId(result.data.workspace.id);
+          set({ currentId: result.data.workspace.id });
+        }
+        return result;
+      }),
+  };
+});
 
 export function wikiPages(pages: Page[]) {
   return pages.filter((page) => !page.componentId);

@@ -13,10 +13,9 @@ Copy and track:
 
 ```
 - [ ] src/schema/common.ts (enums)
-- [ ] src/schema/component.ts (discriminated union + extras fields)
+- [ ] src/schema/component.ts (discriminated union + type-specific fields)
 - [ ] src/schema/metamodel.ts (referenceRules + componentTypeMeta + helpers)
 - [ ] src/lib/draft.ts (draftForType)
-- [ ] src/db/repository.ts (extrasFrom / rowToComponent if new extras)
 - [ ] src/pages/CatalogDetailPage.tsx (type-specific fields)
 - [ ] src/lib/graph.ts (live presets if the type should appear on a map)
 - [ ] src/lib/layout.ts (only if a new visual kind is required)
@@ -29,7 +28,7 @@ Copy and track:
 ## Rules that must stay true
 
 - `contains` is same-type only (`isContainsPair`). `canHaveParent` / `canHaveOwner` derive from `referenceRules`.
-- One `contains` parent and one `owned_by` owner. Columns `parentId` / `ownerId` must match those edges (`src/db/integrity.ts`).
+- One `contains` parent and one `owned_by` owner. `parentId` / `ownerId` are derived from those edges in FalkorDB and checked in bundles by `src/lib/integrity.ts`. A new type gets its node label automatically (`componentLabel` in `server/cypher.ts`); a new reference type gets its relationship type from `relType`.
 - `viaId` is an `interface` component, used on application-to-application edges.
 - Type colors: add `label`, `plural`, `color`, `hex` to `componentTypeMeta`. UI reads that map.
 

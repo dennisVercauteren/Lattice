@@ -304,8 +304,8 @@ export function DiagramsPage() {
             diagram={selected}
             components={graph.components}
             references={graph.references}
-            onDelete={() => {
-              const result = deleteDiagram(selected.id);
+            onDelete={async () => {
+              const result = await deleteDiagram(selected.id);
               if (!result.ok) toast.error(toastErrors(result.errors));
               else navigate("/diagrams");
             }}
@@ -356,8 +356,8 @@ export function DiagramsPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                const result = createDiagram({
+              onClick={async () => {
+                const result = await createDiagram({
                   name,
                   kind,
                   query: kind === "live" ? { preset } : undefined,
@@ -401,7 +401,7 @@ function DiagramCanvas({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [pending, setPending] = useState<Connection | null>(null);
-  const [refType, setRefType] = useState<ReferenceType>("uses");
+  const [refType, setRefType] = useState<ReferenceType>();
   const [viaId, setViaId] = useState("none");
   const [addMode, setAddMode] = useState<"existing" | "new" | "note" | "group">("existing");
   const [componentId, setComponentId] = useState("");
@@ -509,7 +509,7 @@ function DiagramCanvas({
   const persistBoard = useCallback(
     (next: Node[]) => {
       if (diagram.kind !== "board") return;
-      updateDiagram(diagram.id, {
+      void updateDiagram(diagram.id, {
         view: {
           ...diagram.view,
           nodes: next.map((node) => ({
@@ -558,7 +558,7 @@ function DiagramCanvas({
       const sType = byId.get(sourceCmp)?.type;
       const tType = byId.get(targetCmp)?.type;
       const legal = sType && tType ? legalReferenceTypes(sType, tType) : [];
-      setRefType(legal[0] ?? "uses");
+      setRefType(legal[0]);
       setViaId("none");
       setConnectOpen(true);
     },
@@ -788,14 +788,14 @@ function DiagramCanvas({
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                if (!pending) return;
+              onClick={async () => {
+                if (!pending || !refType) return;
                 const source = nodes.find((n) => n.id === pending.source);
                 const target = nodes.find((n) => n.id === pending.target);
                 const sourceId = componentIdOf(source);
                 const targetId = componentIdOf(target);
                 if (!sourceId || !targetId) return;
-                const result = createReference({
+                const result = await createReference({
                   type: refType,
                   sourceId,
                   targetId,
@@ -818,6 +818,7 @@ function DiagramCanvas({
                 );
                 setConnectOpen(false);
               }}
+              disabled={!refType}
             >
               Create
             </Button>
@@ -875,7 +876,7 @@ function DiagramCanvas({
           ) : null}
           <div className="mt-4 flex justify-end">
             <Button
-              onClick={() => {
+              onClick={async () => {
                 const position = { x: 80 + nodes.length * 24, y: 80 + nodes.length * 16 };
                 if (addMode === "note" || addMode === "group") {
                   const node = {
@@ -888,11 +889,11 @@ function DiagramCanvas({
                         ? { width: 280, height: 160 }
                         : { width: 220, height: 90 },
                   };
-                  updateDiagram(diagram.id, {
+                  void updateDiagram(diagram.id, {
                     view: { ...diagram.view, nodes: [...diagram.view.nodes, node] },
                   });
                 } else if (addMode === "existing" && componentId) {
-                  updateDiagram(diagram.id, {
+                  void updateDiagram(diagram.id, {
                     view: {
                       ...diagram.view,
                       nodes: [
@@ -902,14 +903,14 @@ function DiagramCanvas({
                     },
                   });
                 } else if (addMode === "new") {
-                  const created = createComponent({
+                  const created = await createComponent({
                     ...draftForType(newType, newName),
                   });
                   if (!created.ok) {
                     toast.error(toastErrors(created.errors));
                     return;
                   }
-                  updateDiagram(diagram.id, {
+                  void updateDiagram(diagram.id, {
                     view: {
                       ...diagram.view,
                       nodes: [

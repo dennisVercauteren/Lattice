@@ -5,8 +5,3 @@ declare module "elkjs/lib/elk.bundled.js" {
   const Bundled: typeof ELK;
   export default Bundled;
 }
-
-declare module "sql.js/dist/sql-wasm.wasm?url" {
-  const url: string;
-  export default url;
-}

@@ -1,6 +1,6 @@
 # Lattice
 
-A local-first architecture studio — graph, docs, and diagrams in the browser.
+An architecture studio — graph, docs, and diagrams, stored in a FalkorDB graph database.
 
 The typed graph is the source of truth. Pages are prose with `@mentions`. Diagrams are views: live maps layout from the graph, boards remember positions. Connecting two component nodes creates a typed reference.
 
@@ -12,26 +12,27 @@ First launch loads **Northstar**, a small invoicing-SaaS sample. It shows the cl
 - **Typed references** — `contains`, `supports`, `realizes`, `uses`, `depends on`, `owned by`, `integrates with`, `runs on`
 - **Pages** — wiki-style documents that mention catalog objects
 - **Diagrams** — live maps (capability, workflow, application landscape, neighborhood) and freeform boards
-- **Local-first storage** — SQLite in the browser via sql.js; Origin Private File Storage with IndexedDB fallback
+- **Graph storage** — components, references, pages, and diagrams live in [FalkorDB](https://www.falkordb.com/), served by a small local API
 - **Portable JSON** — export and import a workspace bundle, validated on every write
 
-Nothing is written to a file on disk. The workspace stays in the browser until you export it.
+Lattice runs on your machine for a single user. FalkorDB runs in Docker, and its data is kept in a Docker volume (`falkordb-data`).
 
 ## Requirements
 
 - [Node.js](https://nodejs.org/) 20 or later
-- [pnpm](https://pnpm.io/) 11 or later
+- [pnpm](https://pnpm.io/) 11 or later (or `corepack pnpm`)
+- [Docker](https://www.docker.com/) for FalkorDB
 
 ## Getting started
 
 ```bash
 pnpm install
-pnpm schema:export
+pnpm db:up        # start FalkorDB
 pnpm test
-pnpm dev
+pnpm dev          # API + web app
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173). The first start seeds Northstar into FalkorDB. Browse the raw graph in the FalkorDB browser at [http://localhost:3000](http://localhost:3000).
 
 ### Day one
 
@@ -46,16 +47,17 @@ Open [http://localhost:5173](http://localhost:5173).
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev` | Vite dev server |
+| `pnpm db:up` / `pnpm db:down` | Start / stop FalkorDB (Docker) |
+| `pnpm dev` | API server (port 8787) and Vite dev server (port 5173) |
 | `pnpm build` | Typecheck and production build |
-| `pnpm preview` | Serve the production build |
-| `pnpm test` | Vitest |
+| `pnpm start` | Serve the production build and the API from one process |
+| `pnpm test` | Vitest (repository tests need FalkorDB and skip without it) |
 | `pnpm lint` | Oxlint |
 | `pnpm schema:export` | Write JSON Schema from Zod |
 
 ## Schema contract
 
-Zod in `src/schema` is the only type source. `pnpm schema:export` writes `schemas/*.schema.json` (JSON Schema Draft 2020-12). Every write and import `safeParse`s.
+Zod in `src/schema` is the only type source. `pnpm schema:export` writes `schemas/*.schema.json` (JSON Schema Draft 2020-12). The server `safeParse`s every write and import.
 
 A workspace export is one JSON document:
 
@@ -76,9 +78,10 @@ Validate with `schemas/bundle.schema.json`. Diagram node labels are not source o
 ## Project layout
 
 ```
+server/       Hono API and FalkorDB repository
 src/
   schema/     Zod models and metamodel rules
-  db/         sql.js, Drizzle, persistence, integrity
+  api/        API client
   store/      workspace actions
   pages/      Home, Catalog, Pages, Diagrams
   data/       Northstar sample
@@ -88,7 +91,7 @@ scripts/      schema export
 
 ## Stack
 
-React 19, Vite, Tailwind, Zod 4, Drizzle, sql.js, TipTap, xyflow, elkjs.
+React 19, Vite, Tailwind, Zod 4, Zustand, TipTap, xyflow, elkjs. Server: Node, Hono, FalkorDB.
 
 ## License
 

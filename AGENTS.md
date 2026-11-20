@@ -1,10 +1,10 @@
 # Lattice
 
-Local-first architecture studio. Typed graph is source of truth; pages are prose with `@mentions`; diagrams are views (live maps layout from the graph, boards remember positions).
+Architecture studio. Typed graph is source of truth; pages are prose with `@mentions`; diagrams are views (live maps layout from the graph, boards remember positions). Data lives in **FalkorDB**; single user on localhost.
 
 ## Stack
 
-React 19, Vite, Tailwind 4, Zod 4, Drizzle, sql.js (browser SQLite), Zustand, TipTap, xyflow, elkjs. Package manager: **pnpm**.
+React 19, Vite, Tailwind 4, Zod 4, Zustand, TipTap, xyflow, elkjs. Server: Node + Hono, `falkordb` client, FalkorDB in Docker. Package manager: **pnpm**.
 
 ## Layout
 
@@ -12,36 +12,51 @@ React 19, Vite, Tailwind 4, Zod 4, Drizzle, sql.js (browser SQLite), Zustand, Ti
 | --- | --- |
 | `src/schema/` | Only type source. Zod models; `safeParse` on every write/import |
 | `schemas/` | Generated JSON Schema Draft 2020-12. Never hand-edit |
-| `src/db/` | sql.js + Drizzle tables, migrations, repository, integrity |
-| `src/store/workspace.ts` | Zustand. UI calls store; store calls `WorkspaceRepo` |
+| `server/` | API (`app.ts`), FalkorDB access (`graph.ts`), `GraphRepo` (`repository.ts`) |
+| `src/api/client.ts` | `fetch` wrapper; returns `Result<T>`, never throws |
+| `src/store/workspace.ts` | Zustand. UI calls store; store calls the API |
+| `src/lib/integrity.ts` | Bundle integrity checks, shared by server and tests |
 | `src/data/seed.ts` | Northstar sample + empty workspace |
 | `src/lib/graph.ts` | Live-map queries |
 | `src/lib/layout.ts` | ELK / map layout |
 | `src/components/ui/` | Existing primitives (Radix + CVA). Reuse before adding |
 
-Alias: `@/` → `src/`.
+Alias: `@/` → `src/` (also in `server/`).
 
 ## Commands
 
 ```bash
 pnpm install
+pnpm db:up            # FalkorDB in Docker (127.0.0.1:6379, browser UI on :3000)
+pnpm dev              # API on 127.0.0.1:8787 + Vite on http://localhost:5173 (proxies /api)
 pnpm schema:export    # after any src/schema change
-pnpm test
+pnpm test             # repository tests need FalkorDB; they skip when it is down
+pnpm test:e2e         # Playwright scenarios (e2e/tests); needs FalkorDB, starts its own API :8788 + Vite :5174
+pnpm training         # Playwright training walkthroughs (e2e/training) → training-output/<slug>/ (README, PNGs, video)
 pnpm lint
-pnpm dev              # http://localhost:5173
 pnpm build
+pnpm start            # serve dist/ and the API from one process
 ```
 
-Storage is OPFS (IndexedDB fallback). Nothing is written to a workspace file on disk.
+## Storage model
+
+- `lattice:meta` holds `(:Workspace {…, graph})`. Each workspace has its own graph, named in `Workspace.graph`.
+- `(:Component:<Type>)` nodes keep type-specific fields as plain properties. Any field on the Zod schema round-trips automatically.
+- References are relationships typed by reference type (`CONTAINS`, `SUPPORTS`, …) with `{id, viaId?, description?}`.
+- `(:Page)-[:CHILD_OF]->(:Page)`, `(:Page)-[:DESCRIBES]->(:Component)` for auto pages, `(:Page)-[:MENTIONS]->(:Component)` rebuilt on save. Page `doc` is a JSON string.
+- `(:Diagram)` with `query`/`view` as JSON strings, plus `(:Diagram)-[:SHOWS]->(:Component)`.
+- `parentId` / `ownerId` are **derived** from `CONTAINS` / `OWNED_BY` on read and never stored.
+- Writes validate first, then run as one `MULTI/EXEC`. `GraphRepo` serializes writes. Redis has no rollback, so never write before validation passes.
 
 ## Invariants
 
 - Writes return `Result<T>` (`src/schema/result.ts`). Surface `errors[].path` (e.g. `components[3].lifecycle`). Never swallow Zod failures.
-- `parentId` must match a `contains` edge; `ownerId` must match `owned_by`. Same-type contains only. One parent, one owner.
+- `parentId` must match a `contains` edge; `ownerId` must match `owned_by`. Same-type contains only. One parent, one owner, no cycles.
+- PATCH bodies use top-level `null` to clear a field (`patchBody` in `src/api/client.ts`).
 - Diagram node labels are not source of truth — join `componentId` to `components[]`.
 - IDs: `ws_`, `cmp_`, `ref_`, `pg_`, `dia_` + 12-char nanoid (`src/lib/ids.ts`).
-- Type-specific fields live in SQLite `components.extras` JSON via `extrasFrom` in `src/db/repository.ts`.
 - Mentions need `id`, `label`, `mentionType`. Images must be http(s), never `data:` / `blob:`.
+- Labels and relationship types in Cypher come only from the Zod enums (`server/cypher.ts`). Everything else goes through parameters.
 
 ## Metamodel (`starter-v1`)
 
@@ -52,7 +67,7 @@ Legal edges: see `src/schema/metamodel.ts`. Use the **lattice** MCP (`lattice_me
 ## Agent tools
 
 - **lattice MCP**: live metamodel + bundle validation against Zod and integrity.
-- **Context7 MCP**: current docs for Zod 4, React 19, TipTap, xyflow, Drizzle, Tailwind 4.
-- **Browser MCP**: UI checks at `http://localhost:5173` after `pnpm dev`. First launch loads Northstar.
+- **Context7 MCP**: current docs for Zod 4, React 19, TipTap, xyflow, Hono, FalkorDB, Tailwind 4.
+- **Browser MCP**: UI checks at `http://localhost:5173` after `pnpm db:up && pnpm dev`. First launch seeds Northstar.
 
 Prefer `pnpm test` over re-deriving seed/integrity by hand.

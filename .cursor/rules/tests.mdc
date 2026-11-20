@@ -1,17 +1,17 @@
 ---
 description: Vitest conventions for schema, integrity, graph, and repository
-globs: src/**/*.test.ts
+globs: src/**/*.test.ts,server/**/*.test.ts
 alwaysApply: false
 ---
 
 # Tests
 
-- Vitest, Node environment, `src/**/*.test.ts` (`vite.config.ts`).
+- Vitest, Node environment, `src/**/*.test.ts` and `server/**/*.test.ts` (`vite.config.ts`).
 - Import `describe`, `expect`, `it` from `vitest`.
 - Schema/metamodel tests belong in `src/schema/schema.test.ts`. Seed must parse + pass `integrityErrors`.
 - Prefer `buildSampleWorkspace()` / `buildEmptyWorkspace()` over one-off fixtures.
 - When adding a reference rule or component field, add a legal + illegal case (see `isReferenceAllowed` tests).
-- Repository tests: in-memory engine, not OPFS. Graph/layout tests stay pure.
+- Repository tests (`server/repository.test.ts`) run against FalkorDB (`pnpm db:up`) with a unique graph prefix and clean up after themselves. They skip when FalkorDB is down. Graph/layout tests stay pure.
 
 ```ts
 const parsed = bundleSchema.safeParse(bundle);

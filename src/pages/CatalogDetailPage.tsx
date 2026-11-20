@@ -51,6 +51,12 @@ function Field({
 
 export function CatalogDetailPage() {
   const { id } = useParams();
+  // Keyed by id: following a link to another component stays on this route, and without a remount
+  // the reference draft (target, type, via) and other local state would carry over to it.
+  return <ComponentDetail key={id} id={id} />;
+}
+
+function ComponentDetail({ id }: { id: string | undefined }) {
   const navigate = useNavigate();
   const graph = useWorkspace((s) => s.graph);
   const updateComponent = useWorkspace((s) => s.updateComponent);
@@ -83,8 +89,8 @@ export function CatalogDetailPage() {
     (c) => c.id !== component.id && c.type === component.type,
   );
   const owners = graph.components.filter((c) => c.type === "person" || c.type === "organization");
-  const save = (patch: Record<string, unknown>) => {
-    const result = updateComponent(component.id, patch);
+  const save = async (patch: Record<string, unknown>) => {
+    const result = await updateComponent(component.id, patch);
     if (!result.ok) toast.error(toastErrors(result.errors));
   };
 
@@ -106,7 +112,7 @@ export function CatalogDetailPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => {
+            onClick={async () => {
               const existing = graph.diagrams.find(
                 (d) => d.kind === "live" && d.query?.preset === "neighborhood" && d.query.rootId === component.id,
               );
@@ -114,7 +120,7 @@ export function CatalogDetailPage() {
                 navigate(`/diagrams/${existing.id}`);
                 return;
               }
-              const result = createDiagram({
+              const result = await createDiagram({
                 name: `${component.name} neighborhood`,
                 kind: "live",
                 query: { preset: "neighborhood", rootId: component.id },
@@ -306,8 +312,8 @@ export function CatalogDetailPage() {
               doc={autoPage.doc}
               components={graph.components}
               pages={graph.pages}
-              onChange={(doc) => {
-                const result = updatePage(autoPage.id, { doc });
+              onChange={async (doc) => {
+                const result = await updatePage(autoPage.id, { doc });
                 if (!result.ok) toast.error(toastErrors(result.errors));
               }}
             />
@@ -392,9 +398,9 @@ export function CatalogDetailPage() {
               </div>
             ) : null}
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (!targetId) return;
-                const result = createReference({
+                const result = await createReference({
                   type: refType,
                   sourceId: component.id,
                   targetId,
@@ -436,10 +442,11 @@ export function CatalogDetailPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                const result = deleteComponent(component.id);
+              onClick={async () => {
+                // Leave first so the page never renders a component that is being removed.
+                navigate("/catalog");
+                const result = await deleteComponent(component.id);
                 if (!result.ok) toast.error(toastErrors(result.errors));
-                else navigate("/catalog");
               }}
             >
               Delete
@@ -462,7 +469,7 @@ function RefList({
   items: Array<{ id: string; type: ReferenceType; sourceId: string; targetId: string; viaId?: string }>;
   components: Component[];
   side: "source" | "target";
-  onDelete: (id: string) => { ok: boolean; errors?: { path: string; message: string }[] };
+  onDelete: (id: string) => Promise<{ ok: boolean; errors?: { path: string; message: string }[] }>;
 }) {
   return (
     <div className="mb-6">
@@ -494,8 +501,8 @@ function RefList({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => {
-                    const result = onDelete(item.id);
+                  onClick={async () => {
+                    const result = await onDelete(item.id);
                     if (!result.ok && result.errors) toast.error(toastErrors(result.errors));
                   }}
                 >
