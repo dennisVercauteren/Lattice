@@ -51,6 +51,12 @@ function Field({
 
 export function CatalogDetailPage() {
   const { id } = useParams();
+  // Keyed by id: following a link to another component stays on this route, and without a remount
+  // the reference draft (target, type, via) and other local state would carry over to it.
+  return <ComponentDetail key={id} id={id} />;
+}
+
+function ComponentDetail({ id }: { id: string | undefined }) {
   const navigate = useNavigate();
   const graph = useWorkspace((s) => s.graph);
   const updateComponent = useWorkspace((s) => s.updateComponent);
